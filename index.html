@@ -491,56 +491,64 @@ body{font-family:'Georgia','Noto Serif',serif;background:var(--bg);color:var(--t
 
 <div class="toast" id="toast"></div>
 
-<script type="module">
-// ─── FIREBASE ────────────────────────────────────────────────────────────────
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-
-const firebaseConfig = {
-  apiKey: "AIzaSyC4FiUXwa0zHYpj6cQmC2X6JPpiZiRYIbQ",
-  authDomain: "chinese-listening-practice.firebaseapp.com",
-  projectId: "chinese-listening-practice",
-  storageBucket: "chinese-listening-practice.firebasestorage.app",
-  messagingSenderId: "670370440217",
-  appId: "1:670370440217:web:26d57a676fbf976d5a7688"
-};
-
-const firebaseApp = initializeApp(firebaseConfig);
-const db = getFirestore(firebaseApp);
-const USER_DOC = 'users/main'; // tek kullanıcı
-
+<script>
+// ─── JSONBIN ─────────────────────────────────────────────────────────────────
+const JSONBIN_KEY = '$2a$10$2yxutz3IgHlo3Bv9AlfqY.YvrbYqsTg8AIcLkrd4fq3SQWJ/0DrH.';
+const JSONBIN_BASE = 'https://api.jsonbin.io/v3';
+let binId = localStorage.getItem('jsonbin_id') || null;
 let syncTimer = null;
-let fbReady = false;
+let isSyncing = false;
 
-async function loadFromFirestore(){
+async function loadFromBin(){
+  if(!binId) return null;
   try{
-    const snap = await getDoc(doc(db, 'users', 'main'));
-    if(snap.exists()){
-      return snap.data();
+    const r = await fetch(`${JSONBIN_BASE}/b/${binId}/latest`, {
+      headers: {'X-Master-Key': JSONBIN_KEY}
+    });
+    if(!r.ok) return null;
+    const d = await r.json();
+    return d.record || null;
+  } catch(e){ return null; }
+}
+
+async function saveToBin(data){
+  if(isSyncing) return;
+  isSyncing = true;
+  try{
+    if(!binId){
+      // İlk kayıt — yeni bin oluştur
+      const r = await fetch(`${JSONBIN_BASE}/b`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY,
+          'X-Bin-Name': 'cumle-pratigi'
+        },
+        body: JSON.stringify(data)
+      });
+      const d = await r.json();
+      binId = d.metadata?.id;
+      if(binId) localStorage.setItem('jsonbin_id', binId);
+    } else {
+      // Mevcut bin'i güncelle
+      await fetch(`${JSONBIN_BASE}/b/${binId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Master-Key': JSONBIN_KEY
+        },
+        body: JSON.stringify(data)
+      });
     }
-    return null;
-  } catch(e){
-    console.warn('Firestore load failed:', e);
-    return null;
-  }
+  } catch(e){ console.warn('JSONBin save failed:', e); }
+  isSyncing = false;
 }
 
-async function saveToFirestore(data){
-  try{
-    await setDoc(doc(db, 'users', 'main'), data);
-  } catch(e){
-    console.warn('Firestore save failed:', e);
-  }
-}
-
-// Debounced save — 2 saniye bekle sonra kaydet
 function scheduleSave(){
   if(syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(async ()=>{
-    // localStorage'a hemen yaz
     try{ localStorage.setItem(SK, JSON.stringify(st)); }catch{}
-    // Firestore'a async yaz
-    if(fbReady) await saveToFirestore(st);
+    await saveToBin(st);
   }, 2000);
 }
 
@@ -649,9 +657,7 @@ const DS = [
 // ─── STATE ──────────────────────────────────────────────────────────────────
 function loadSt(){try{const s=localStorage.getItem(SK);return s?JSON.parse(s):null;}catch{return null;}}
 function saveSt(){
-  // localStorage'a hemen yaz
   try{localStorage.setItem(SK,JSON.stringify(st));}catch{}
-  // Firestore'a debounced yaz
   scheduleSave();
 }
 
@@ -1931,16 +1937,16 @@ function initApp(){
   updateSubtitle();
 }
 
-// Firestore'dan yükle, yoksa localStorage kullan
+// Veriye yükle — JSONBin → localStorage sırası
 (async ()=>{
   showToast('Syncing… ☁','');
   try{
-    const fbData = await Promise.race([
-      loadFromFirestore(),
+    const binData = await Promise.race([
+      loadFromBin(),
       new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),8000))
     ]);
-    if(fbData && Object.keys(fbData).length > 0){
-      st = Object.assign({}, defaultSt, fbData);
+    if(binData && Object.keys(binData).length > 0){
+      st = Object.assign({}, defaultSt, binData);
       if(!st.extra) st.extra=[];
       if(!st.cats) st.cats=[];
       if(!st.srs) st.srs={};
@@ -1960,10 +1966,7 @@ function initApp(){
     } else {
       showToast('Ready ✓','ok');
     }
-    fbReady=true;
   } catch(e){
-    // Bağlantı kurulamadı — localStorage kullan, sessizce devam et
-    fbReady=false;
     showToast('Offline — local data ✓','warn');
   }
   initApp();
