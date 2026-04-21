@@ -503,12 +503,15 @@ async function loadFromBin(){
   if(!binId) return null;
   try{
     const r = await fetch(`${JSONBIN_BASE}/b/${binId}/latest`, {
-      headers: {'X-Master-Key': JSONBIN_KEY}
+      headers: {
+        'X-Master-Key': JSONBIN_KEY,
+        'X-Bin-Meta': 'false'
+      }
     });
-    if(!r.ok) return null;
+    if(!r.ok){ console.warn('JSONBin load HTTP error:', r.status); return null; }
     const d = await r.json();
-    return d.record || null;
-  } catch(e){ return null; }
+    return d.record || d || null;
+  } catch(e){ console.warn('JSONBin load error:', e); return null; }
 }
 
 async function saveToBin(data){
@@ -1940,33 +1943,40 @@ function initApp(){
 // Veriye yükle — JSONBin → localStorage sırası
 (async ()=>{
   showToast('Syncing… ☁','');
-  try{
-    const binData = await Promise.race([
-      loadFromBin(),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),8000))
-    ]);
-    if(binData && Object.keys(binData).length > 0){
-      st = Object.assign({}, defaultSt, binData);
-      if(!st.extra) st.extra=[];
-      if(!st.cats) st.cats=[];
-      if(!st.srs) st.srs={};
-      if(!st.wordSrs) st.wordSrs={};
-      if(!st.wordMeta) st.wordMeta={};
-      if(!st.wordQueue) st.wordQueue=[];
-      if(!st.wIdx) st.wIdx=0;
-      if(!st.notes) st.notes={};
-      if(!st.hardArr) st.hardArr=[];
-      if(!st.learnedArr) st.learnedArr=[];
-      if(!st.pQueue) st.pQueue=[];
-      sentences=[...DS,...st.extra];
-      hardSet=new Set(st.hardArr);
-      learnedSet=new Set(st.learnedArr);
-      try{localStorage.setItem(SK,JSON.stringify(st));}catch{}
-      showToast('Synced ✓ ☁','ok');
-    } else {
-      showToast('Ready ✓','ok');
+  let binData = null;
+  
+  // 3 kez dene
+  for(let attempt=0; attempt<3; attempt++){
+    try{
+      binData = await Promise.race([
+        loadFromBin(),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),10000))
+      ]);
+      if(binData) break;
+    } catch(e){
+      if(attempt<2){ await new Promise(r=>setTimeout(r,2000)); } // 2sn bekle, tekrar dene
     }
-  } catch(e){
+  }
+
+  if(binData && Object.keys(binData).length > 0){
+    st = Object.assign({}, defaultSt, binData);
+    if(!st.extra) st.extra=[];
+    if(!st.cats) st.cats=[];
+    if(!st.srs) st.srs={};
+    if(!st.wordSrs) st.wordSrs={};
+    if(!st.wordMeta) st.wordMeta={};
+    if(!st.wordQueue) st.wordQueue=[];
+    if(!st.wIdx) st.wIdx=0;
+    if(!st.notes) st.notes={};
+    if(!st.hardArr) st.hardArr=[];
+    if(!st.learnedArr) st.learnedArr=[];
+    if(!st.pQueue) st.pQueue=[];
+    sentences=[...DS,...st.extra];
+    hardSet=new Set(st.hardArr);
+    learnedSet=new Set(st.learnedArr);
+    try{localStorage.setItem(SK,JSON.stringify(st));}catch{}
+    showToast('Synced ✓ ☁','ok');
+  } else {
     showToast('Offline — local data ✓','warn');
   }
   initApp();
