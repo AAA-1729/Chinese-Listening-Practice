@@ -1935,9 +1935,11 @@ function initApp(){
 (async ()=>{
   showToast('Syncing… ☁','');
   try{
-    const fbData = await loadFromFirestore();
+    const fbData = await Promise.race([
+      loadFromFirestore(),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),8000))
+    ]);
     if(fbData && Object.keys(fbData).length > 0){
-      // Firestore verisi var — kullan
       st = Object.assign({}, defaultSt, fbData);
       if(!st.extra) st.extra=[];
       if(!st.cats) st.cats=[];
@@ -1953,16 +1955,16 @@ function initApp(){
       sentences=[...DS,...st.extra];
       hardSet=new Set(st.hardArr);
       learnedSet=new Set(st.learnedArr);
-      // localStorage'ı da güncelle
       try{localStorage.setItem(SK,JSON.stringify(st));}catch{}
       showToast('Synced ✓ ☁','ok');
     } else {
-      showToast('No cloud data, using local ✓','ok');
+      showToast('Ready ✓','ok');
     }
     fbReady=true;
   } catch(e){
-    console.warn('Firebase init error:', e);
-    showToast('Offline mode','warn');
+    // Bağlantı kurulamadı — localStorage kullan, sessizce devam et
+    fbReady=false;
+    showToast('Offline — local data ✓','warn');
   }
   initApp();
 })();
